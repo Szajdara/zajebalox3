@@ -1,22 +1,45 @@
-﻿using System.Collections;
+﻿// Importuje podstawowe klasy Unity (MonoBehaviour, GameObject itp.)
+using System.Collections;
+
+// Importuje kolekcje generyczne (List, Dictionary – tu nieużywane)
 using System.Collections.Generic;
+
+// Importuje klasy Unity
 using UnityEngine;
 
-public class dogenemy : entity
+// Definicja klasy Dogenemy
+// Dziedziczy po Entity, więc ma podstawowe cechy wroga (np. życie, śmierć)
+public class Dogenemy : Entity
 {
-    [SerializeField] private int lives = 3;
+    // Liczba żyć psa-wroga
+    public int lives = 1;
 
+    // Metoda wywoływana przy kolizji 2D
     private void OnCollisionEnter2D(Collision2D collision)
     {
-
-        if (collision.gameObject == hero.Instance.gameObject)
+        // Sprawdza, czy kolidujący obiekt to bohater
+        if (collision.gameObject == Hero.Instance.gameObject)
         {
-            hero.Instance.GetDamage();
-            lives--;
-            Debug.Log("Lives left: " + lives);
+            // Jeśli tak, bohater dostaje obrażenia
+            Hero.Instance.GetDamage();
         }
-        if (lives < 1)
-            Die();
+    }
 
+    // Nadpisuje metodę GetDamage z klasy Entity
+    public override void GetDamage()
+    {
+        // Wypisuje w konsoli informację, że pies został trafiony
+        Debug.Log("DOG HIT!!!");
+
+        // Zmniejsza liczbę żyć psa
+        lives--;
+
+        // Wypisuje aktualne HP psa w konsoli
+        Debug.Log("Dog HP: " + lives);
+
+        // Jeśli pies nie ma już życia
+        if (lives <= 0)
+            // Wywołuje metodę Die z klasy Entity, aby zniszczyć obiekt lub wykonać animację śmierci
+            Die();
     }
 }

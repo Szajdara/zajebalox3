@@ -1,147 +1,263 @@
-﻿using System;
+﻿// Importuje klasy systemowe Unity (coroutines)
+using System;
+
+// Importuje kolekcje (tu nieużywane, można usunąć)
 using System.Collections;
 using System.Collections.Generic;
-using System.Security.Cryptography.X509Certificates;
+
+// Importuje podstawowe klasy Unity
 using UnityEngine;
-using static UnityEditor.VersionControl.Asset;
 
-public class hero : entity
+// Importuje klasy UI (Text, Image itp.)
+using UnityEngine.UI;
+
+// Importuje zarządzanie scenami (ładuj sceny po śmierci)
+using UnityEngine.SceneManagement;
+
+// Definicja klasy Hero (gracz)
+// Dziedziczy po Entity, więc ma metody GetDamage() i Die()
+public class Hero : Entity
 {
-    [SerializeField] private float speed = 3f;
-    [SerializeField] private int lives = 5;
-    [SerializeField] private float jumpForce = 7f;
-    [SerializeField] private bool isGrounded = false;
+    // --- Parametry ruchu i życia ---
+    [SerializeField] private float speed = 3f; // prędkość poruszania się
+    [SerializeField] private int health;       // aktualne zdrowie
+    [SerializeField] private int lives;        // maksymalne życie
+    [SerializeField] private float jumpForce = 7f; // siła skoku
+    [SerializeField] private bool isGrounded = false; // czy gracz stoi na ziemi
 
-    [SerializeField] public bool isAttacking = false;
-    [SerializeField] public bool isRecharged = true;
+    // --- UI serc ---
+    [SerializeField] private Image[] hearts; // serca w UI
+    [SerializeField] private Sprite aliveHeart; // pełne serce
+    [SerializeField] private Sprite deadHeart;  // puste serce
 
-    public Transform attackPos;
-    public float attackRange;
-    public LayerMask enemy;
+    // --- Atak ---
+    [SerializeField] public bool isAttacking = false; // czy aktualnie atakuje
+    [SerializeField] public bool isRecharged = true;  // cooldown ataku
+    public Transform attackPos;     // punkt ataku
+    public float attackRange = 0.5f; // zasięg ataku
+    public LayerMask enemy;         // warstwa wrogów
 
+    // --- Śmierć ---
+    [SerializeField] private GameObject deathSprite; // opcjonalny sprite śmierci
+    [SerializeField] private float deathY = -20f;    // jeśli gracz spadnie niżej → śmierć
+
+    // --- Dźwięki ---
+    [SerializeField] private AudioSource jumpSound;
+    [SerializeField] private AudioSource getDamage;
+    [SerializeField] private AudioSource AttackSound;
+
+    // --- Komponenty ---
     private Rigidbody2D rb;
     private Animator anim;
     private SpriteRenderer sprite;
 
-    public static hero Instance { get; set; }
+    // Flaga, czy gracz jest martwy
+    private bool isDead = false;
+
+    // Singleton, aby Hero był łatwo dostępny w innych skryptach
+    public static Hero Instance { get; set; }
+
+    // Wewnętrzna właściwość dla animacji
     private States State
     {
-        get { return (States)anim.GetInteger("state"); }
-        set { anim.SetInteger("state", (int)value); }
+        get { return (States)anim.GetInteger("state"); } // pobiera stan z animatora
+        set { anim.SetInteger("state", (int)value); }    // ustawia stan w animatorze
     }
 
+    // --- Awake ---
     private void Awake()
     {
-        rb = GetComponent<Rigidbody2D>();
-        anim = GetComponent<Animator>();
-        sprite = GetComponentInChildren<SpriteRenderer>();
-        Instance = this;
-        isRecharged = true;
+        lives = 5;        // ustawiamy maksymalne życie
+        health = lives;   // zdrowie na start = maks
+        rb = GetComponent<Rigidbody2D>(); // pobieramy Rigidbody
+        anim = GetComponent<Animator>();  // pobieramy Animator
+        sprite = GetComponentInChildren<SpriteRenderer>(); // Sprite gracza
+        Instance = this;  // przypisujemy singleton
+        isRecharged = true; // atak gotowy od startu
     }
 
+    // --- FixedUpdate ---
     private void FixedUpdate()
     {
-        CheckGround();
+        CheckGround(); // sprawdzamy, czy gracz stoi na ziemi
     }
 
+    // --- Update ---
     private void Update()
     {
-
-        if (isGrounded) State = States.idle;
-
-        if (Input.GetButton("Horizontal"))
+        // Jeśli gracz spadnie poniżej deathY → ginie
+        if (!isDead && transform.position.y < deathY)
         {
+            Die();
+        }
+
+        // Jeśli gracz stoi i nie atakuje → idle
+        if (!isDead && isGrounded && !isAttacking)
+            State = States.idle;
+
+        // Ruch w lewo/prawo
+        if (Input.GetButton("Horizontal") && !isDead)
             Run();
-        }
-        if (isGrounded && Input.GetButtonDown("Jump"))
-        {
+
+        // Skok
+        if (isGrounded && Input.GetButtonDown("Jump") && !isDead)
             Jump();
-        }
-        if (isRecharged && Input.GetButtonDown("Fire1")) // or any button you want for attack
+
+        // Atak
+        if (isRecharged && Input.GetKeyDown(KeyCode.X))
         {
             Attack();
         }
+
+        // Ograniczenie health do max
+        if (health > lives)
+            health = lives;
+
+        // --- Aktualizacja serc w UI ---
+        for (int i = 0; i < hearts.Length; i++)
+        {
+            // pełne lub puste serce
+            hearts[i].sprite = (i < health) ? aliveHeart : deadHeart;
+
+            // włączamy tylko tyle serc ile lives
+            hearts[i].enabled = (i < lives);
+        }
     }
+
+    // --- Run ---
     private void Run()
     {
-        if (isGrounded) State = States.run;
+        if (isGrounded && !isAttacking)
+            State = States.run;
 
+        // kierunek ruchu
         Vector3 dir = transform.right * Input.GetAxis("Horizontal");
 
-        transform.position = Vector3.MoveTowards(transform.position, transform.position + dir, speed * Time.deltaTime);
+        // przesuwamy gracza
+        transform.position = Vector3.MoveTowards(
+            transform.position,
+            transform.position + dir,
+            speed * Time.deltaTime
+        );
 
+        // odwracamy sprite w zależności od kierunku
         if (dir.x > 0)
             transform.localScale = new Vector3(1, 1, 1);
         else if (dir.x < 0)
             transform.localScale = new Vector3(-1, 1, 1);
-
     }
 
+    // --- Jump ---
     private void Jump()
     {
-        rb.AddForce(transform.up * jumpForce, ForceMode2D.Impulse);
+        rb.AddForce(transform.up * jumpForce, ForceMode2D.Impulse); // siła skoku
+        jumpSound.Play(); // dźwięk skoku
     }
 
+    // --- Sprawdzanie, czy gracz stoi na ziemi ---
     private void CheckGround()
     {
-        Collider2D[] colliders = Physics2D.OverlapCircleAll(transform.position + Vector3.down * 0.1f, 0.4f);
-        isGrounded = colliders.Length > 1;
+        Collider2D[] colliders = Physics2D.OverlapCircleAll(
+            transform.position + Vector3.down * 0.1f, // punkt tuż pod graczem
+            0.4f // promień sprawdzania
+        );
+        isGrounded = colliders.Length > 1; // jeśli są jakieś kolidery → stoi na ziemi
 
-        if (!isGrounded) State = States.jump;
+        if (!isGrounded)
+            State = States.jump; // zmiana animacji na jump
     }
 
-    public override void GetDamage() 
+    // --- GetDamage ---
+    public override void GetDamage()
     {
-        lives -= 1;
-        Debug.Log(lives);
+        if (isDead) return; // jeśli gracz martwy → nic nie robimy
+
+        getDamage.Play(); // odtwarzamy dźwięk obrażeń
+        health--;        // zmniejszamy zdrowie
+
+        if (health <= 0)
+        {
+            health = 0;
+            Die();       // śmierć
+        }
+
+        Debug.Log("Health: " + health); // wypisanie zdrowia w konsoli
     }
 
+    // --- Atak ---
     private void Attack()
     {
-        if (isGrounded && isRecharged)
-        {
+        if (!isGrounded || !isRecharged) return; // nie atakujemy w powietrzu lub podczas cooldown
 
-            State = States.atak;
-            isAttacking = true;
-            isRecharged = false;
+        State = States.atak;
+        isAttacking = true;
+        isRecharged = false;
+        AttackSound.Play(); // odtwarzamy dźwięk ataku
 
-            StartCoroutine(AttackAnimation());
-            StartCoroutine(AttackCooldown());
-        }
+        StartCoroutine(AttackAnimation()); // animacja ataku
+        StartCoroutine(AttackCooldown());  // cooldown ataku
     }
 
-    private void OnAttack()
-    {
-        Collider2D[] colliders = Physics2D.OverlapCircleAll(attackPos.position, attackRange, enemy);
-
-        for (int i = 0; i < colliders.Length; i++)
-        {
-            colliders[i].GetComponent<entity>().GetDamage();
-        }
-    }
     private IEnumerator AttackAnimation()
     {
-        // Wait a short time for the attack to "hit"
-        yield return new WaitForSeconds(1.5f); // adjust to match your animation timing
-        OnAttack(); // deal damage to enemies in range
-
-        // Wait until the animation ends
-        isAttacking = false;
-        if (isGrounded)
-            State = States.idle;
+        OnAttack(); // sprawdzamy trafienia wroga
+        yield return new WaitForSeconds(0.3f); // czas trwania ataku
+        isAttacking = false; // koniec animacji ataku
     }
 
     private IEnumerator AttackCooldown()
     {
-        yield return new WaitForSeconds(1.5f); // attack cooldown in seconds
+        yield return new WaitForSeconds(0.8f); // czas odnowienia ataku
         isRecharged = true;
     }
 
+    private void OnAttack()
+    {
+        Collider2D[] colliders = Physics2D.OverlapCircleAll(
+            attackPos.position, attackRange, enemy // zasięg i warstwa wrogów
+        );
+
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Entity e = colliders[i].GetComponent<Entity>();
+            if (e != null)
+                e.GetDamage(); // zadajemy obrażenia każdemu w zasięgu
+        }
+    }
+
+    // --- Rysowanie gizmos dla attackPos ---
+    private void OnDrawGizmosSelected()
+    {
+        if (attackPos == null) return;
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(attackPos.position, attackRange);
+    }
+
+    // --- Die ---
+    public override void Die()
+    {
+        isDead = true;
+        State = States.die;
+
+        rb.velocity = Vector2.zero;          // zatrzymujemy ruch
+        rb.bodyType = RigidbodyType2D.Static; // blokujemy Rigidbody
+
+        StartCoroutine(LoadGameOver()); // po 3s ładuje scenę gameOver
+    }
+
+    private IEnumerator LoadGameOver()
+    {
+        yield return new WaitForSeconds(3f);
+        SceneManager.LoadScene("gameOver"); // scena po śmierci
+    }
+
+    // --- Stany gracza ---
     public enum States
     {
-        idle,
-        run,
-        jump,
-        atak
+        idle,  // stojący
+        run,   // biegnący
+        jump,  // skaczący
+        atak,  // atakujący
+        die    // martwy
     }
 }
